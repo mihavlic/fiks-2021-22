@@ -1,17 +1,16 @@
+use std::{collections::BinaryHeap, rc::Rc};
+
 fn stdin_line() -> String {
     let mut string = String::new();
     std::io::stdin().read_line(&mut string).unwrap();
     string
 }
 
-struct Language {
+#[derive(Debug)]
+struct LanguageVertex {
     name: String,
-    translations: Vec<(usize, usize)> // (cost, translation)
-}
-
-struct Translator {
-    c: usize,
-    langs: Vec<usize>
+    explored: bool,
+    translation_edges: Vec<(u32, usize)>, // (cost, opposing LanguageVertex) it is not needed which translator provides the translation
 }
 
 fn main() {
@@ -20,104 +19,166 @@ fn main() {
     for _ in 0..t {
         let n = stdin_line().trim().parse::<usize>().unwrap();
 
-        let mut languages = Vec::new();
+        let mut languages = Vec::with_capacity(n);
         for _ in 0..n {
             let name = stdin_line().trim().to_owned();
-            languages.push(Language {
+            languages.push(LanguageVertex {
                 name,
-                translations: Vec::new()
+                explored: false,
+                translation_edges: Vec::new(),
             });
         }
 
-        languages.sort_unstable_by(|a,b| a.name.cmp(&b.name));
+        languages.sort_unstable_by(|a, b| a.name.cmp(&b.name));
 
         let p = stdin_line().trim().parse::<usize>().unwrap();
-        let mut translators = Vec::new();
         for _ in 0..p {
             let line = stdin_line();
             let mut split = line.split_whitespace();
 
             let m = split.next().unwrap().parse::<usize>().unwrap();
-            let c = split.next().unwrap().parse::<usize>().unwrap();
+            let c = split.next().unwrap().parse::<u32>().unwrap();
 
             let mut langs = Vec::with_capacity(m);
             for _ in 0..m {
                 let language = split.next().unwrap();
-                let index = languages.binary_search_by_key(&language, |lang| lang.name.as_str()).unwrap();
+                let index = languages
+                    .binary_search_by_key(&language, |lang| lang.name.as_str())
+                    .unwrap();
                 langs.push(index);
             }
 
             for lang_i in &langs {
                 for lang_j in &langs {
-                    if lang_i == lang_j { continue; }
+                    // do not make an edge from itself to itself
+                    if lang_i == lang_j {
+                        continue;
+                    }
 
-                    languages[*lang_i].translations.push((c, *lang_j));
-                    languages[*lang_j].translations.push((c, *lang_i));
+                    let mut push_translation_dedup =
+                        |lang_index: usize, (cost, translation_lang_index): (u32, usize)| {
+                            for (prev_cost, prev_translation_lang) in
+                                &mut languages[lang_index].translation_edges
+                            {
+                                // a translation already exists, set the minimum cost
+                                if *prev_translation_lang == translation_lang_index {
+                                    *prev_cost = (*prev_cost).min(cost);
+                                    return;
+                                }
+                            }
+                            // the translation is not here, push it
+                            languages[lang_index]
+                                .translation_edges
+                                .push((cost, translation_lang_index));
+                        };
+
+                    // make edges between the two languages in both directions
+                    push_translation_dedup(*lang_i, (c, *lang_j));
+                    push_translation_dedup(*lang_j, (c, *lang_i));
                 }
             }
-
-            translators.push(Translator {
-                c,
-                langs
-            });
         }
 
         let line = stdin_line();
         let mut split = line.split_whitespace();
 
-        let lang1 = {
+        let start = {
             let language = split.next().unwrap();
-            let index = languages.binary_search_by_key(&language, |lang| lang.name.as_str()).unwrap();
+            let index = languages
+                .binary_search_by_key(&language, |lang| lang.name.as_str())
+                .unwrap();
             index
         };
-        let lang2 = {
+        let target = {
             let language = split.next().unwrap();
-            let index = languages.binary_search_by_key(&language, |lang| lang.name.as_str()).unwrap();
+            let index = languages
+                .binary_search_by_key(&language, |lang| lang.name.as_str())
+                .unwrap();
             index
         };
 
-        let mut stack: Vec<(usize, usize)> = Vec::new(); // (lang_index, inner_index)
-        stack.push((lang1, 0));
+        #[derive(Clone)]
+        struct PathLink(usize, Option<Rc<Self>>);
 
-        let mut best = (0, Vec::new()); // (cost, sequence)
-        let mut cost = 0;
+        struct Node {
+            cost: u32,
+            lang_index: usize,
+            prev: PathLink,
+        }
 
-        while stack.is_empty() {
+        // a bunch of custom derives so that the BinaryHeap works correctly since we want to sort only by the cost and the smallest cost must be at the top of the heap
+        impl PartialEq for Node {
+            fn eq(&self, other: &Self) -> bool {
+                self.cost == other.cost
+            }
+        }
 
-            let last_lang = stack.last().unwrap().0;
+        impl Eq for Node {}
 
-            if last_lang == lang2 && cost > best.0 {
-                let sequence = stack.iter().map(|(lang_index, _)| lang_index).collect();
-                best = (cost, sequence);
+        impl PartialOrd for Node {
+            fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+                self.cost.partial_cmp(&other.cost).map(|ord| ord.reverse())
+            }
+        }
+
+        impl Ord for Node {
+            fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+                self.cost.cmp(&other.cost).reverse()
+            }
+        }
+
+        let mut heap = BinaryHeap::new();
+        heap.push(Node {
+            cost: 0,
+            lang_index: start,
+            prev: PathLink(start, None),
+        });
+
+        let mut last_node = None;
+        while !heap.is_empty() {
+            let pop = heap.pop().unwrap();
+
+            languages[pop.lang_index].explored = true;
+
+            if pop.lang_index == target {
+                last_node = Some(pop);
+                break;
             }
 
-            let last = stack.last_mut().unwrap();
-            let lang = &languages[last.0];
+            for &(edge_cost, translation_index) in &languages[pop.lang_index].translation_edges {
+                let translation = &languages[translation_index];
 
-            if last.1 < lang.translations.len() {
-                last.1 += 1;
-                let next = &lang.translations[last.1];
-
-                drop(last);
-
-                if stack.iter().position(|k| k.0 == next.1).is_some() {
+                // node was already explored
+                if translation.explored == true {
                     continue;
                 }
 
-                cost += next.0;
-                stack.push((next.1, 0));
-            } else {
-
-                drop(last);
-
-                let pop = stack.pop().unwrap();
-                cost -= languages[pop.0].translations[pop.1 - 1].0;
+                heap.push(Node {
+                    cost: pop.cost + edge_cost,
+                    lang_index: translation_index,
+                    prev: PathLink(pop.lang_index, Some(Rc::new(pop.prev.clone()))),
+                })
             }
         }
-/*
-        for a in best.1 {
-            print!("{} ", languages[*a].name);
+
+        if let Some(node) = last_node {
+            let mut final_translations = vec![target, node.prev.0];
+            let mut path = &node.prev.1;
+
+            while let Some(prev) = path {
+                if prev.1.is_some() {
+                    final_translations.push(prev.0);
+                }
+                path = &prev.1;
+            }
+
+            println!("To nas bude stat {},-.", node.cost);
+            println!("Pocet prekladu: {}.", final_translations.len() - 1);
+            for &translation in final_translations.iter().rev() {
+                println!("{}", languages[translation].name);
+            }
+        } else {
+            println!("Takove prekladatele nemame.");
         }
-        println!()*/
     }
 }

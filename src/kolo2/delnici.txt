@@ -1,0 +1,33 @@
+2
+10
+Marathstina
+Sicilstina
+Bislamstina
+Azerbajdzanstina
+Svedstina
+Islandstina
+Kitsajstina
+Neapolstina
+Galicijstina
+Uzbectina
+4
+3 84 Marathstina Sicilstina Svedstina
+2 2 Svedstina Bislamstina
+3 96 Kitsajstina Sicilstina Azerbajdzanstina
+4 36 Bislamstina Azerbajdzanstina Neapolstina Uzbectina
+Galicijstina Bislamstina
+9
+Tibestina
+Jukargstina
+Benatstina
+Maorstina
+Uzbectina
+Unserdeutsch
+Cebuanstina
+Rwandstina
+Sindhstina
+3
+5 21 Uzbectina Tibestina Rwandstina Unserdeutsch Benatstina
+3 23 Cebuanstina Benatstina Jukargstina
+5 73 Sindhstina Tibestina Unserdeutsch Cebuanstina Maorstina
+Sindhstina Benatstina
