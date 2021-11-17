@@ -1,0 +1,12 @@
+3
+2
+Mys 1 100
+Had 1 200
+2
+Mys 1 100
+Had 1 200
+4
+Hroch 4 120
+Slon 2 200
+Zirafa 2 240
+Zebra 6 80

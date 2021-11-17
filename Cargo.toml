@@ -1,0 +1,20 @@
+[package]
+name = "fiks"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "byrokracie"
+path = "src/kolo1/byrokracie.rs"
+
+[[bin]]
+name = "sponzori"
+path = "src/kolo1/sponzori.rs"
+
+[[bin]]
+name = "pozemky"
+path = "src/kolo1/pozemky.rs"
+
+[dependencies]
