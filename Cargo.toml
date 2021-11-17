@@ -17,4 +17,8 @@ path = "src/kolo1/sponzori.rs"
 name = "pozemky"
 path = "src/kolo1/pozemky.rs"
 
+[[bin]]
+name = "delnici"
+path = "src/kolo1/delnici.rs"
+
 [dependencies]
