@@ -6,7 +6,6 @@ fn stdin_line() -> String {
     string
 }
 
-#[derive(Debug)]
 struct LanguageVertex {
     name: String,
     explored: bool,
