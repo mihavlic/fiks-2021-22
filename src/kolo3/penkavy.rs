@@ -326,5 +326,5 @@ fn main() {
 }
 
 pub fn div_up(a: usize, b: usize) -> usize {
-    (a + (b - 1)) / b
+    (a + b - 1) / b
 }

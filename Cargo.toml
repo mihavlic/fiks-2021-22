@@ -43,7 +43,7 @@ name = "sloni"
 path = "src/kolo3/sloni.rs"
 
 [profile.release]
-overflow-checks = false
+overflow-checks = true
 opt-level = 3
 panic = "abort"
 
