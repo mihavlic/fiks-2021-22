@@ -272,7 +272,6 @@ fn main() {
         let mut triplets = Vec::new();
 
         for y in 0..h {
-            
             for x1 in 0..w {
                 if adjacency_matrix[x1 + y * w] == 0 {
                     continue;
@@ -282,7 +281,6 @@ fn main() {
                 }
 
                 for x2 in (x1 + 1)..w {
-
                     if x2 == y {
                         continue;
                     }

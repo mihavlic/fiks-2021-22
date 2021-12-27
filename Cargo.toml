@@ -42,6 +42,10 @@ path = "src/kolo3/penkavy.rs"
 name = "sloni"
 path = "src/kolo3/sloni.rs"
 
+[[bin]]
+name = "ryby"
+path = "src/kolo3/ryby.rs"
+
 [profile.release]
 overflow-checks = true
 opt-level = 3
