@@ -5,10 +5,10 @@ fn stdin_line() -> String {
 }
 
 fn main() {
-
     let line = stdin_line();
     let mut split = line.split_whitespace();
 
+    // tady se krásně parsuje, prý čím víc .unwrap(), tím líp
     let n = split.next().unwrap().parse::<usize>().unwrap();
     let sx = split.next().unwrap().parse::<i32>().unwrap();
     let sy = split.next().unwrap().parse::<i32>().unwrap();
@@ -20,80 +20,84 @@ fn main() {
 
         let p = split.next().unwrap().parse::<usize>().unwrap();
 
-        let mut vertices = vec![(0, 0); p];
-        for i in 0..p {
+        let mut vertices = Vec::with_capacity(p);
+        for _ in 0..p {
             let x = split.next().unwrap().parse::<i32>().unwrap();
             let y = split.next().unwrap().parse::<i32>().unwrap();
 
-            vertices[i] = (x, y);
+            vertices.push((x, y));
         }
 
         polygons.push(vertices);
     }
 
-    
-    // s = (sx, sy)
+    // s = (sx, sy)  ; chceme přímku rovnoběžnou k tomuto vektoru, tedy jí otočíme o 90° tímto trikem
     // n = (sy, -sx)
+    // ax + by + c = 0  ; c je nula protože nás zajímá jen relativní vzdálenost
     // p: sy⋅x + -sx⋅y = 0
     //
-    // Q: [m, n]
-    // v(Q, p) = (sy⋅m - sx⋅n) / |s|  ; zajima nas jen relativni vzdalenost, deleni tedy muzeme vypustit
-    // v(Q, p) = (sy⋅m - sx⋅n)
-    
-    let mut projected_extremes = Vec::new();
+    // Q: [x, y]  ; nějaký bod Q tvořící vrchol polygonu
+    // v(Q, p) = (sy⋅x - sx⋅y) / |s|  ; stejně tak můžeme vypustit dělení velikostí
+    // v′(Q, p) = sy⋅x - sx⋅y
 
-    // let mut total_distance_max = 0;
+    let mut projected_extremes = Vec::with_capacity(polygons.len() * 2);
+
+    // spočítá "nějakou" vzdálenost od přímky rovnoběžné s vektorem (sx, sy) procházející nulou
+    // její velikost není důležitá, jen slouží k porovnání
     for vertices in &polygons {
         let mut min = i32::MAX;
         let mut max = 0;
         for &(m, n) in vertices {
-            let v = sy*m - sx*n;
+            let v = sy * m - sx * n;
             min = min.min(v);
             max = max.max(v);
         }
-        // total_distance_max = total_distance_max.max(max);
 
-        // projected_shapes.push((min, max));
-        projected_extremes.push((min, true));
-        projected_extremes.push((max, false));
+        // true znamená, že interval uvádí, false ho uzavírá
+        projected_extremes.push((min, false));
+        projected_extremes.push((max, true));
     }
 
+    // rustová implementace sortu pro touply, tedy (i32, bool) nejdříve řadí podle prvního elementu a až poté se rozhoduje podle druhého
+    // tedy ve výsledku budou touply se stejným číslem a true první, tím se jakoby docílí aby byly intervaly uzavřené
     projected_extremes.sort_unstable();
 
     let mut max_overlap = 0;
-    let mut overlapping_count = 0;
-    for (_, is_start) in projected_extremes {
-        match is_start {
-            true => overlapping_count += 1,
-            false => overlapping_count -= 1,
+    let mut cur_overlap_count = 0;
+    for (_, is_end) in projected_extremes {
+        match is_end {
+            false => cur_overlap_count += 1,
+            true => cur_overlap_count -= 1,
         }
-        max_overlap = max_overlap.max(overlapping_count);
+        max_overlap = max_overlap.max(cur_overlap_count);
     }
-    
+
     println!("{}", max_overlap);
 
-    // for (min, max) in projected_shapes {
-    //     println!("{}..{}", min, max);
-    // }
-    
     rasterize(polygons);
 }
 
-// tohle je scanline rasterizer na ilustraci vstupu, neni soucasti reseni ale jen tu tak je
+// tohle je scanline rasterizer na ilustraci vstupu, není součástní řešení ale jen tu tak je abych se mohl vytahovat
 fn rasterize(polygons: Vec<Vec<(i32, i32)>>) {
-    
-    // scale oddeleny pro osy aby to v terminalu nebylo protahle
-    let scale_x = std::env::args().nth(1).map(|s| s.parse::<i32>().unwrap()).unwrap_or(8);
-    let scale_y = std::env::args().nth(2).map(|s| s.parse::<i32>().unwrap()).unwrap_or(scale_x/2);
+    // scale oddělený pro osy aby se vykompenzoval nerovný poměr stran políček terminálu
+    let scale_x = std::env::args()
+        .nth(1)
+        .map(|s| s.parse::<i32>().unwrap())
+        .unwrap_or(8);
+    let scale_y = std::env::args()
+        .nth(2)
+        .map(|s| s.parse::<i32>().unwrap())
+        .unwrap_or(scale_x / 2);
 
     let mut total_min_x = i32::MAX;
     let mut total_min_y = i32::MAX;
     let mut total_max_x = 0;
     let mut total_max_y = 0;
 
-    // ja vim ze jsem tohle vsechno mohl delat pri cteni vstupu, ale ten jsem chtel nechat bez tohohle sumu
-    let mut rescaled_polygons = Vec::with_capacity(polygons.len()); 
+    // scale se aplikuje až tady místo ve čtení výstupu jen aby to bylo přehledné
+    let mut rescaled_polygons = Vec::with_capacity(polygons.len());
     for mut vertices in polygons {
+        assert!(!vertices.is_empty());
 
         let mut min_x = i32::MAX;
         let mut min_y = i32::MAX;
@@ -118,66 +122,59 @@ fn rasterize(polygons: Vec<Vec<(i32, i32)>>) {
         rescaled_polygons.push((vertices, (min_x, min_y), (max_x, max_y)))
     }
 
+    // do teď min a max řešily pozici samotných vrcholů, teď je potřeba určit kolik "pixelů" reálně bude
     let w = (total_max_x - total_min_x + 1) as usize;
     let h = (total_max_y - total_min_y + 1) as usize;
 
     let mut canvas = vec![0u8; w * h];
 
-    // even though the polygon is convex, this algorithm emits 3 intersections in certain edge cases, the output is not affected
+    // i když jsou polygony konvexní, algoritmus v nekterych pripadech vyplivne jeden průsečík dvakrát
+    // nevidím jak to jednoduše spravit jinak než všude dat vyjímky takže tu prostě bude místo na tři
     let mut row_pts = [0; 3];
 
     for (polygon_i, (vertices, min, max)) in rescaled_polygons.iter().enumerate() {
+        
         let polygon_id = (polygon_i % 255 + 1) as u8;
-
         let mut buffer_y = (min.1 - total_min_y) as usize;
 
+        // na jádro tohoto algoritmu jsem přepsal nějaký kod z C který ani nefungoval
         for row_y in min.1..=max.1 {
             let mut row_pts_count = 0;
-
-            // if vertices.len() > row_pts.len() {
-            //     row_pts.resize(vertices.len(), 0);
-            // }
+            let mut prev_dir = 0;
 
             let mut j = vertices.len() - 1;
-            let mut prev_dir = 0;
+
             for i in 0..vertices.len() {
                 let pi = vertices[i];
                 let pj = vertices[j];
-                
+
                 j = i;
-                
+
                 let side_i = pi.1 > row_y;
                 let side_j = pj.1 > row_y;
 
-                // if row_y == 15 && polygon_i == 2 {
-                //     println!("{} ({}, {}) ({}, {})", prev_dir, pi.0 / 16, pi.1 / 16, pj.0 / 16, pj.1 / 16);
-                // }
-                
                 if side_i != side_j || pi.1 == row_y || pj.1 == row_y {
                     let s = (pi.0 - pj.0, pi.1 - pj.1);
-                    
                     let cur_dir = s.1.signum();
 
+                    // pokuď je hrana horizontální, nebo byly dvě za sebou ve stejném směru
+                    // /  to je aby když nastane ta situace, že dvě hrany tvoří vrchol na řádku, protínáme jen jednu aby nevznikly dva stejné průsečíky
+                    // |
+                    //
+                    // ^ v případě, že máme takto ostrý vrchol, chceme jeden průsečík dvakrát aby obarvil jen ten pixel přímo pod vrcholem
                     if s.1 == 0 || prev_dir == cur_dir {
+                        // hodnota 0 se normálně nevyskytuje mimo horizontální hrany, znamená to tedy, že příští nehorizontální hrana přes tohle přejde
+                        prev_dir = 0;
                         continue;
                     }
 
                     prev_dir = cur_dir;
 
-                    let n = (s.1, -s.0);
-                    let x = (n.0 * pi.0 + n.1 * pi.1 - n.1 * row_y) / n.0;
+                    // vyrobeno z obecné rovnice přímmky ax+by+c=0
+                    let x = (s.1 * pi.0 + -s.0 * pi.1 + s.0 * row_y) / s.1;
 
                     row_pts[row_pts_count] = x - total_min_x;
                     row_pts_count += 1;
-
-                    // if row_pts_count == 3 {
-                    //     dbg!(&row_pts[0..row_pts_count]);
-                    //     dbg!(polygon_i);
-                    //     dbg!(pi);
-                    //     dbg!(pj);
-                    //     dbg!(row_y);
-                    //     canvas[row_y as usize*w + 5] = 1;
-                    // }
                 }
             }
 
@@ -187,10 +184,10 @@ fn rasterize(polygons: Vec<Vec<(i32, i32)>>) {
                 row_pts[0] = b;
                 row_pts[1] = a;
             }
-            // row_pts[0..row_pts_count].sort_unstable();
 
+            // vyplňuje pole mezi dvojicemi prusečíků, zapisuje číslo polygonu, to je přeměněno na znak později 
             let mut i = 0;
-            while i < row_pts_count - 1 {
+            while i + 1 < row_pts_count {
                 for pixel_x in row_pts[i]..=row_pts[i + 1] {
                     canvas[pixel_x as usize + buffer_y * w] = polygon_id;
                 }
@@ -201,20 +198,30 @@ fn rasterize(polygons: Vec<Vec<(i32, i32)>>) {
         }
     }
 
+    // ošklivé printítko výsledného pole, pro různé polygony printuje různé znaky a na místech, kde by bez scalovani byly celé souřadnice udělá puntíky
+    // printuje do stderr aby v tom nebyl bordel
+    // třeba takto
+    // ●▓▓▓●...●░░░●
+    // ▓▓▓▓▓...░░░░░
+    // ●▓▓▓●...●░░░●
+    // .............
+    // ●░░░●...●▒▒▒●
+    // ░░░░░...▒▒▒▒▒
+    // ●░░░●...●▒▒▒●
     let scale_x = scale_x as usize;
     let scale_y = scale_y as usize;
     for y in (0..h).rev() {
         for x in 0..w {
-            let chars = ['■', '░', '▒', '▓'];
+            let chars = ['░', '▒', '▓'];
 
             let val = match canvas[(x + y * w) as usize] {
-                _ if x % scale_x == 0 && y % scale_y == 0 => '●',
+                _ if x % scale_x == 0 && y % scale_y == 0 && scale_x != 1 && scale_y != 1 => '●',
+                // prázdný pixel
                 0 => '.',
                 n => chars[(n - 1) as usize % chars.len()],
             };
-            print!("{}", val);
+            eprint!("{}", val);
         }
-        // print!("{}", '|');
-        println!();
+        eprintln!();
     }
 }
