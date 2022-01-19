@@ -1,3 +1,8 @@
+// Poznámky k odevzdání:
+//  toto je napsáno v Rustu, koncovka je .txt protože odevzdávací systém nepřijímá .rs soubory
+//  pro kompilaci programu použijte 'rustc ./prohlidkove-okruhy_rust.txt'
+//  užitečný one-liner pro běžení se vstupními daty je 'rustc ./prohlidkove-okruhy_rust.txt -o sponzori && ./sponzori < $VSTUPNI_DATA'
+
 fn stdin_line() -> String {
     let mut string = String::new();
     std::io::stdin().read_line(&mut string).unwrap();
@@ -31,15 +36,6 @@ fn main() {
         polygons.push(vertices);
     }
 
-    // s = (sx, sy)  ; chceme přímku rovnoběžnou k tomuto vektoru, tedy jí otočíme o 90° tímto trikem
-    // n = (sy, -sx)
-    // ax + by + c = 0  ; c je nula protože nás zajímá jen relativní vzdálenost
-    // p: sy⋅x + -sx⋅y = 0
-    //
-    // Q: [x, y]  ; nějaký bod Q tvořící vrchol polygonu
-    // v(Q, p) = (sy⋅x - sx⋅y) / |s|  ; stejně tak můžeme vypustit dělení velikostí
-    // v′(Q, p) = sy⋅x - sx⋅y
-
     let mut projected_extremes = Vec::with_capacity(polygons.len() * 2);
 
     // spočítá "nějakou" vzdálenost od přímky rovnoběžné s vektorem (sx, sy) procházející nulou
@@ -48,6 +44,7 @@ fn main() {
         let mut min = i32::MAX;
         let mut max = 0;
         for &(m, n) in vertices {
+            // toto je ta magická omáčka co počítá vzdálenost
             let v = sy * m - sx * n;
             min = min.min(v);
             max = max.max(v);
@@ -74,7 +71,8 @@ fn main() {
 
     println!("{}", max_overlap);
 
-    rasterize(polygons);
+    // rasterizuje polygony a vypíše je do stdout
+    // rasterize(polygons);
 }
 
 // tohle je scanline rasterizer na ilustraci vstupu, není součástní řešení ale jen tu tak je abych se mohl vytahovat
