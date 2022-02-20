@@ -51,7 +51,7 @@ name = "krmeni"
 path = "src/kolo4/krmeni.rs"
 
 [profile.release]
-overflow-checks = true
+overflow-checks = false
 opt-level = 3
 panic = "abort"
 
