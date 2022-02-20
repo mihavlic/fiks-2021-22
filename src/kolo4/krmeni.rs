@@ -1,5 +1,52 @@
 #![allow(unused, non_snake_case)]
-use std::collections::VecDeque;
+use std::{collections::VecDeque, sync::{atomic::{AtomicU32, Ordering}, Mutex, Arc}, thread::Thread, borrow::{BorrowMut, Borrow}, mem::size_of};
+
+use crossbeam_channel::RecvError;
+
+struct Bitvec {
+    buf: Vec<usize>
+}
+
+impl Bitvec {
+    fn with_capacity(cap: usize) -> Self {
+        let backing_size = div_up(cap, size_of::<usize>()*8);
+        Self {
+            buf: vec![0; backing_size]
+        }
+    }
+    fn len(&self) -> usize {
+        self.buf.len() * size_of::<usize>()*8
+    }
+    fn fill(&mut self, fill: bool) {
+        let val = match fill {
+            true => !0,
+            false => 0,
+        };
+
+        self.buf.iter_mut().for_each(|int| *int = val);
+    }
+    fn set(&mut self, index: usize, val: bool) {
+        let bits = size_of::<usize>()*8;
+        let low = index / bits;
+        let bit = index % bits;
+    
+        let val = (val as usize) << (bits - 1 - bit);
+        self.buf[low] |= val;
+    }
+    fn get(&self, index: usize) -> bool {
+        let bits = size_of::<usize>()*8;
+        let low = index / bits;
+        let bit = index % bits;
+        
+        let val = self.buf[low] >> (bits - 1 - bit);
+
+        (val & 1) == 1
+    }
+}
+
+pub fn div_up(a: usize, b: usize) -> usize {
+    (a + b - 1) / b
+}
 
 fn stdin_line() -> String {
     let mut string = String::new();
@@ -47,27 +94,65 @@ fn main() {
         let b = &mut country_neighbors[v as usize];
         buf[(b.0 + b.1) as usize] = u;
         b.1 += 1;
+    }    
+    
+    let mut distance_from_czech = vec![0; N];
+    {
+        let mut stack = VecDeque::new();
+        let mut touched = Bitvec::with_capacity(N);
+        stack.push_back(0);
+        touched.set(0, true);
+
+        map_bfs(&country_neighbors, &buf, &mut touched, &mut stack, u32::MAX, |node, step| {
+            distance_from_czech[node as usize] = step;
+        });
     }
 
-    // for (i, &(offset, count)) in country_neighbors.iter().enumerate() {
-    //     println!("{}: {:?}", i, &buf[(offset as usize)..((offset + count) as usize)]);
-    // }
-    
-    let mut stack = VecDeque::new();
-    let mut touched = vec![false; N];
-    stack.push_back(0);
-    touched[0] = true;
-
-    let mut distance_from_czech = vec![0; N];
-    map_bfs(&country_neighbors, &buf, &mut touched, &mut stack, u32::MAX, |node, step| {
-        distance_from_czech[node as usize] = step;
-    });
-
     // [distance, countries touched]
-    let mut cumulative_distance = pairs;
-    let mut zeme = Vec::new();
+    
+    let thread_count = std::env::args().nth(1).and_then(|s| s.parse::<usize>().ok()).unwrap_or(1);
+    
+    let mut results = Arc::new((0..Q).map(|_| AtomicU32::new(0)).collect::<Vec<_>>());
+    // (index, max_dist, sum_dist)
+    let (send, recv) = crossbeam_channel::bounded::<(usize, u32, u32, Vec<u32>)>(64);
+    
+    let data = Arc::new(buf);
+    let neighbors = Arc::new(country_neighbors);
 
-    for _ in 0..Q {
+    let mut threads = Vec::new();
+    for _ in 0..thread_count {
+
+        let neighbors = neighbors.clone();
+        let data = data.clone();
+        let results = results.clone();
+
+        let mut stack = VecDeque::new();
+        let mut touched = Bitvec::with_capacity(N);
+
+        let recv_clone = recv.clone();
+        let mut cumulative_dist = vec![(0, 0); N];
+
+        let handle = std::thread::spawn(move || {
+            loop {
+                match recv_clone.recv() {
+                    Ok((query_index, max_dist, sum_dist, zeme)) => {
+                        let min = solve(&mut cumulative_dist, &zeme, &mut stack, &mut touched, &*neighbors, &data, max_dist);
+
+                        let atomic: &AtomicU32 = results.get(query_index).unwrap();
+                        atomic.store(sum_dist - min, Ordering::Relaxed);
+                    },
+                    // channel closed
+                    Err(_) => break,
+                }
+            }
+        });
+
+        threads.push(handle);
+    }
+            
+    let mut zeme = Vec::new();
+    for i in 0..Q {
+        let time = std::time::Instant::now();
         let line = stdin_line();
         let mut split = line.split_whitespace();
 
@@ -75,57 +160,79 @@ fn main() {
 
         let mut max_dist = 0;
         let mut sum_dist = 0;
-
+        
         zeme.resize(K, 0);
-
-        for i in 0..K {
+        
+        for j in 0..K {
             // indexovani v kodu od 0 oproti od 1 v zadani
             let zeme_index = split.next().unwrap().parse::<u32>().unwrap() - 1;
-            zeme[i] = zeme_index;
+            zeme[j] = zeme_index;
             let dist = distance_from_czech[zeme_index as usize];
             
             max_dist = max_dist.max(dist);
             sum_dist += dist;
         }
 
-        cumulative_distance.fill((0, 0));
-
-        for &zeme_index in &zeme {
-            stack.clear();
-            touched.fill(false);
-            stack.push_back(zeme_index);
-            touched[zeme_index as usize] = true;
-
-            map_bfs(&country_neighbors, &buf, &mut touched, &mut stack, max_dist, |node, step| {
-                let dist = &mut cumulative_distance[node as usize];
-                dist.0 += step;
-                dist.1 += 1;
-            });
+        if K >= 50000 {
+            break;
         }
 
-        let mut len = zeme.len() as u32;
-        let mut min = u32::MAX;
-        for &(dist, touch_count) in &cumulative_distance {
-            if touch_count == len {
-                min = min.min(dist);
-            }
-        }
+        if K == 1 {
+            results[i].store(sum_dist, Ordering::SeqCst);
+        } else {
+            let query = (i, max_dist, sum_dist, zeme.clone());
+            send.send(query).unwrap();
+        };
+    }
 
-        println!("{}", sum_dist as u32 - min);
+    drop(send);
+
+    for handle in threads {
+        handle.join();
+    }
+
+    for result in &*results {
+        println!("{}", result.load(Ordering::SeqCst));
     }
 }
+
+fn solve(cumulative_distance: &mut Vec<(u32, u32)>, zeme: &Vec<u32>, stack: &mut VecDeque<u32>, touched: &mut Bitvec, country_neighbors: &Vec<(u32, u32)>, neighbor_data: &Vec<u32>, max_dist: u32) -> u32 {
+    cumulative_distance.fill((0, 0));
+    
+    for &zeme_index in zeme {
+        stack.clear();
+        touched.fill(false);
+        stack.push_back(zeme_index);
+        touched.set(zeme_index as usize, true);
+
+        map_bfs(country_neighbors, neighbor_data, touched, stack, max_dist, |node, step| {
+            let dist = &mut cumulative_distance[node as usize];
+            dist.0 += step;
+            dist.1 += 1;
+        });
+    }
+    let mut len = zeme.len() as u32;
+    let mut min = u32::MAX;
+    for &mut(dist, touch_count) in cumulative_distance {
+        if touch_count == len {
+            min = min.min(dist);
+        }
+    }
+    min
+}
+
 
 //                 (node_index, generation)
 fn map_bfs<F: FnMut(u32, u32)>(
     country_neighbors: &Vec<(u32, u32)>,
-    buf: &Vec<u32>,
-    mut nodes_touched: &mut Vec<bool>,
+    neighbor_data: &Vec<u32>,
+    mut nodes_touched: &mut Bitvec,
     mut stack: &mut VecDeque<u32>,
     max_steps: u32,
     mut fun: F,
 ) {
-    let N = nodes_touched.len();
-    assert!(N == country_neighbors.len());
+    let N = country_neighbors.len();
+    assert!(nodes_touched.len() >= N);
 
     let mut steps = 0;
     while !stack.is_empty() {
@@ -139,9 +246,9 @@ fn map_bfs<F: FnMut(u32, u32)>(
             fun(pop, steps);
 
             let (offset, count) = country_neighbors[pop as usize];
-            for &x in &buf[(offset as usize)..((offset + count) as usize)] {
-                if nodes_touched[x as usize] == false {
-                    nodes_touched[x as usize] = true;
+            for &x in &neighbor_data[(offset as usize)..((offset + count) as usize)] {
+                if nodes_touched.get(x as usize) == false {
+                    nodes_touched.set(x as usize, true);
                     stack.push_back(x);
                 }
             }
