@@ -1,5 +1,5 @@
 #![allow(unused, non_snake_case)]
-use std::{collections::VecDeque, sync::{atomic::{AtomicU32, Ordering}, Mutex, Arc}, thread::Thread, borrow::{BorrowMut, Borrow}, mem::size_of};
+use std::{collections::VecDeque, sync::{atomic::{AtomicU32, Ordering}, Mutex, Arc}, thread::Thread, borrow::{BorrowMut, Borrow}, mem::size_of, hint::unreachable_unchecked};
 
 use crossbeam_channel::RecvError;
 
@@ -9,6 +9,10 @@ struct Bitvec {
 
 impl Bitvec {
     fn with_capacity(cap: usize) -> Self {
+        fn div_up(a: usize, b: usize) -> usize {
+            (a + b - 1) / b
+        }
+
         let backing_size = div_up(cap, size_of::<usize>()*8);
         Self {
             buf: vec![0; backing_size]
@@ -42,11 +46,25 @@ impl Bitvec {
 
         (val & 1) == 1
     }
+    unsafe fn set_unchecked(&mut self, index: usize, val: bool) {
+        let bits = size_of::<usize>()*8;
+        let low = index / bits;
+        let bit = index % bits;
+    
+        let val = (val as usize) << (bits - 1 - bit);
+        *self.buf.get_unchecked_mut(low) |= val;
+    }
+    unsafe fn get_unchecked(&self, index: usize) -> bool {
+        let bits = size_of::<usize>()*8;
+        let low = index / bits;
+        let bit = index % bits;
+        
+        let val = self.buf.get_unchecked(low) >> (bits - 1 - bit);
+
+        (val & 1) == 1
+    }
 }
 
-pub fn div_up(a: usize, b: usize) -> usize {
-    (a + b - 1) / b
-}
 
 fn stdin_line() -> String {
     let mut string = String::new();
@@ -127,7 +145,7 @@ fn main() {
         let results = results.clone();
 
         let mut stack = VecDeque::new();
-        let mut touched = Bitvec::with_capacity(N);
+        let mut touched = Vec::new();
 
         let recv_clone = recv.clone();
         let mut cumulative_dist = vec![(0, 0); N];
@@ -176,10 +194,6 @@ fn main() {
             sum_dist += dist;
         }
 
-        if K >= 50000 {
-            break;
-        }
-
         if K == 1 {
             results[i].store(sum_dist, Ordering::SeqCst);
         } else {
@@ -199,28 +213,56 @@ fn main() {
     }
 }
 
-fn solve(cumulative_distance: &mut Vec<(u32, u32)>, zeme: &Vec<u32>, stack: &mut VecDeque<u32>, touched: &mut Bitvec, country_neighbors: &Vec<(u32, u32)>, neighbor_data: &Vec<u32>, max_dist: u32) -> u32 {
-    cumulative_distance.fill((0, 0));
+// cum (distance, countries touched), stack (country_index, origin_country_bitmap)
+fn solve(cumulative_distance: &mut Vec<(u32, u32)>, zeme: &Vec<u32>, stack: &mut VecDeque<(u32, u32)>, touched: &mut Vec<Bitvec>, country_neighbors: &Vec<(u32, u32)>, neighbor_data: &Vec<u32>, max_dist: u32) -> u32 {
+    let N = cumulative_distance.len();
     
-    for &zeme_index in zeme {
-        stack.clear();
-        touched.fill(false);
-        stack.push_back(zeme_index);
-        touched.set(zeme_index as usize, true);
+    cumulative_distance.fill((0, 0));
+    stack.clear();
+    
+    for bitvec in touched.iter_mut() {
+        bitvec.fill(false);
+    }
 
-        map_bfs(country_neighbors, neighbor_data, touched, stack, max_dist, |node, step| {
-            let dist = &mut cumulative_distance[node as usize];
-            dist.0 += step;
-            dist.1 += 1;
-        });
+    if touched.len() < zeme.len() {
+        touched.resize_with(zeme.len(), || Bitvec::with_capacity(N))
     }
-    let mut len = zeme.len() as u32;
-    let mut min = u32::MAX;
-    for &mut(dist, touch_count) in cumulative_distance {
-        if touch_count == len {
-            min = min.min(dist);
+
+    for (i, &zeme_index) in zeme.iter().enumerate() {
+        stack.push_back((zeme_index, i as u32));
+        touched[i].set(zeme_index as usize, true);
+    }
+
+    let len = zeme.len() as u32;
+    let mut steps = 0;
+    let min = unsafe {
+        'min_loop: loop {
+            let last = stack.len();
+            for _ in 0..last {
+                let (index, origin_country) = match stack.pop_front() {
+                    Some(some) => some,
+                    None => unreachable_unchecked(),
+                };
+                cumulative_distance.get_unchecked_mut(index as usize).0 += steps;
+                cumulative_distance.get_unchecked_mut(index as usize).1 += 1;
+
+                if cumulative_distance.get_unchecked(index as usize).1 == len {
+                    break 'min_loop cumulative_distance.get_unchecked(index as usize).0;
+                }
+
+                let (offset, count) = *country_neighbors.get_unchecked(index as usize);
+                for &x in &neighbor_data[(offset as usize)..((offset + count) as usize)] {
+                    if touched.get_unchecked(origin_country as usize).get_unchecked(x as usize) == false {
+
+                        touched.get_unchecked_mut(origin_country as usize).set_unchecked(x as usize, true);
+                        stack.push_back((x, origin_country));
+                    }
+                }
+            }
+            steps += 1;
         }
-    }
+    };
+
     min
 }
 

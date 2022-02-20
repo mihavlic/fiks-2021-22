@@ -57,6 +57,7 @@ path = "src/kolo4/cpu.rs"
 
 [profile.release]
 overflow-checks = false
+codegen-units = 1
 opt-level = 3
 panic = "abort"
 
