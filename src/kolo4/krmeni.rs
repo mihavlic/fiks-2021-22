@@ -139,7 +139,10 @@ fn main() {
                         let min = solve(&mut cumulative_dist, &zeme, &mut stack, &mut touched, &*neighbors, &data, max_dist);
 
                         let atomic: &AtomicU32 = results.get(query_index).unwrap();
-                        atomic.store(sum_dist - min, Ordering::Relaxed);
+<<<<<<< HEAD
+=======
+                        atomic.store(sum_dist - min, Ordering::SeqCst);
+>>>>>>> 7cadb21 (Paralelize computation, use bitpacked structure)
                     },
                     // channel closed
                     Err(_) => break,
