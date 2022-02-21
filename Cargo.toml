@@ -50,6 +50,11 @@ path = "src/kolo3/ryby.rs"
 name = "krmeni"
 path = "src/kolo4/krmeni.rs"
 
+
+[[bin]]
+name = "cpu"
+path = "src/kolo4/cpu.rs"
+
 [profile.release]
 overflow-checks = false
 opt-level = 3
