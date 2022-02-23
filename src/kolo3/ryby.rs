@@ -131,7 +131,6 @@ fn rasterize(polygons: Vec<Vec<(i32, i32)>>) {
     let mut row_pts = [0; 3];
 
     for (polygon_i, (vertices, min, max)) in rescaled_polygons.iter().enumerate() {
-        
         let polygon_id = (polygon_i % 255 + 1) as u8;
         let mut buffer_y = (min.1 - total_min_y) as usize;
 
@@ -183,7 +182,7 @@ fn rasterize(polygons: Vec<Vec<(i32, i32)>>) {
                 row_pts[1] = a;
             }
 
-            // vyplňuje pole mezi dvojicemi prusečíků, zapisuje číslo polygonu, to je přeměněno na znak později 
+            // vyplňuje pole mezi dvojicemi prusečíků, zapisuje číslo polygonu, to je přeměněno na znak později
             let mut i = 0;
             while i + 1 < row_pts_count {
                 for pixel_x in row_pts[i]..=row_pts[i + 1] {

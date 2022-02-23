@@ -83,16 +83,15 @@ fn main() {
         // this is a trick to get the first index to be zero without needing special flags or using signed integers
         // if this integer overflows I would like to know how much memory the computer has
         *next_child = next_child.wrapping_add(1);
-        
+
         if *next_child == ch_count {
             node_order[*node_i as usize].1 = order;
             stack.pop().unwrap();
             depth = depth.wrapping_sub(1);
         } else {
-
             let children = &child_buf[(ch_offset as usize)..((ch_offset + ch_count) as usize)];
             let next_child = children[*next_child as usize];
-            
+
             // since the edges we created earlier are undirected, one of the child's edges will point back to the parent
             // since we will never need them, we just swap the index with the last child and decrement the count, as such it can always be reconstructed
             {
@@ -105,14 +104,14 @@ fn main() {
 
                 let saved_last = *children.last().unwrap();
                 let saved_parent = children[index_of_parent];
-                
+
                 *children.last_mut().unwrap() = saved_parent;
                 children[index_of_parent] = saved_last;
             }
-            
+
             depth += 1;
             order += 1;
-            
+
             node_order[next_child as usize].0 = order;
             node_depth[next_child as usize] = depth;
             stack.push((next_child, 0u32.wrapping_sub(1)));
@@ -132,7 +131,7 @@ fn main() {
         let K = split.next().unwrap().parse::<u32>().unwrap();
 
         sources.resize(K as usize, 0);
-        
+
         // let mut sum_dist = 0;
         for j in 0..K {
             let index = split.next().unwrap().parse::<u32>().unwrap() - 1;
@@ -161,7 +160,7 @@ fn lca(l: u32, r: u32, nodes: &[(u32, u32)], child_buf: &[u32], node_order: &[(u
     cur_node
 }
 
-fn get_node_children<'a>(node: u32, nodes: &[(u32, u32)], child_buf: &'a[u32]) -> &'a [u32] {
+fn get_node_children<'a>(node: u32, nodes: &[(u32, u32)], child_buf: &'a [u32]) -> &'a [u32] {
     let (offset, count) = nodes[node as usize];
     &child_buf[(offset as usize)..((offset + count) as usize)]
 }
