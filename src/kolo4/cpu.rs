@@ -1,5 +1,7 @@
+#![allow(unused)]
+
 struct Process {
-    dead: bool,
+    stopped: bool,
     pc: u8,
     stack: [u32; 16],
     stack_cap: u8,
@@ -10,7 +12,7 @@ type OpResult<T> = Result<T, ()>;
 impl Process {
     fn new(offset: u8) -> Self {
         Self {
-            dead: false,
+            stopped: false,
             pc: offset,
             stack: [0; 16],
             stack_cap: 0,
@@ -41,16 +43,27 @@ impl Process {
         }
     }
     fn process_adress(addr: u32) -> OpResult<usize> {
-        Ok(addr as usize)
+        if addr == 666 {
+            return Err(());
+        }
+        Ok(addr as usize % 256)
     }
     fn step(
         &mut self,
-        opcode: u8,
-        immediate: u32,
         mem: &mut [u32; 256],
         program_index: u32,
         awaiting_teleport: &mut Vec<u32>,
     ) -> OpResult<()> {
+        let instr = mem[self.pc as usize];
+
+        let opcode = (instr & 0xFF) as u8;
+        let immediate = (instr >> 8) & 0xFFFF;
+        // let zero = (instr >> 24) & 0xFF;
+
+        // if zero != zero {
+        //     return Err(());
+        // }
+
         match opcode {
             0x00 /* NOP */  => (),
             0x01 /* PC */  => {
@@ -86,21 +99,18 @@ impl Process {
                 let addr = self.stack_pop()?;
                 let addr = Self::process_adress(addr)?;
                 let val = self.stack_pop()?;
-
-                // if addr != 0 {
-                    mem[addr] = val;
-                // }
+                mem[addr] = val;
             }
             0x09 /* ADD */  => {
                 let a = self.stack_pop()?;
                 let b = self.stack_pop()?;
-                let c = a + b;
+                let c = a.wrapping_add(b);
                 self.stack_push(c)?;
             }
             0x0a /* SUB */ => {
                 let a = self.stack_pop()?;
                 let b = self.stack_pop()?;
-                let c = a - b;
+                let c = a.wrapping_sub(b);
                 self.stack_push(c)?;
             }
             0x0b /* DIV */ => {
@@ -109,14 +119,14 @@ impl Process {
                 if b == 0 {
                     return Err(());
                 }
-                let c = a / b;
+                let c = a.wrapping_div(b);
                 self.stack_push(c)?;
             }
             0x0c /* POW */ => {
                 let a = self.stack_pop()?;
                 let b = self.stack_pop()?;
                 // rust 0.pow(0) is 1
-                let c = a.pow(b);
+                let c = a.wrapping_pow(b);
                 self.stack_push(c)?;
             }
             0x0d /* BRZ */ => {
@@ -145,7 +155,7 @@ impl Process {
                 }
             }
             0x11 /* JMP */ => {
-                self.pc = self.pc.wrapping_add(immediate as u8);
+                self.pc = immediate as u8;
             }
             0x12 /* ARMED_BOMB */ => {
                 return Err(());
@@ -155,9 +165,9 @@ impl Process {
             }
             0x14 /* TLPORT */ => {
                 awaiting_teleport.push(program_index);
-                // decrement pc because it will be incremented again at the start of the program and it is explicitly stated that pc doesn't increment after this instruction
-                // it is done this way instead of dying and staying in the awaiting_teleport until more teleports are pushed to preserve order within a cycle
-                self.pc = self.pc.wrapping_sub(1);
+                // teleport instructions exit early and don't increment pc, then wait for more teleports to be called
+                self.stopped = true;
+                return Ok(());
             }
             0x15 /* JNTAR */ => {
                 for offset in [2, 4, 8] {
@@ -170,6 +180,8 @@ impl Process {
             }
             _ => return Err(())
         }
+        self.pc = self.pc.wrapping_add(1);
+
         return Ok(());
     }
 }
@@ -193,7 +205,9 @@ fn main() {
         unsafe { &mut MEM_BUF }
     };
 
-    for _ in 0..Q {
+    let disassemble_query = std::env::args().nth(1).map(|s| s.parse::<usize>().unwrap());
+
+    for q_i in 0..Q {
         let P = stdin_line().trim_end().parse::<usize>().unwrap();
 
         processes.clear();
@@ -210,57 +224,63 @@ fn main() {
 
             let offset = offset as usize;
             let n = n as usize;
-            mem[offset..(offset + n)].fill_with(|| split.next().unwrap().parse::<u32>().unwrap());
+            let dst = &mut mem[offset..(offset + n)];
+            dst.fill_with(|| split.next().unwrap().parse::<u32>().unwrap());
+
+            // if Some(q_i) == disassemble_query {
+            //     eprintln!(" Dissasembly {}:{}", offset, n);
+            //     for val in dst {
+            //         let string = disasm(*val);
+            //         eprintln!("  {}", string);
+            //     }
+            // }
         }
 
-        // 0 is always 0
-        mem[0] = 0;
-
+        let mut dead = 0;
         let mut awaiting_teleport = Vec::new();
         for _ in 0..5000 {
+            if dead == processes.len() {
+                break;
+            }
+
             for (i, proc) in processes.iter_mut().enumerate() {
-                if proc.dead {
+                if proc.stopped {
                     continue;
                 }
 
+                // mem at 0 is always zero
                 mem[0] = 0;
 
-                let instr = mem[proc.pc as usize];
-
-                let opcode = instr & 0xFF;
-                let immediate = (instr >> 8) & 0xFFFF;
-
-                match proc.step(
-                    opcode as u8,
-                    immediate,
-                    mem,
-                    i as u32,
-                    &mut awaiting_teleport,
-                ) {
+                match proc.step(mem, i as u32, &mut awaiting_teleport) {
                     Ok(_) => (),
                     Err(_) => {
-                        proc.dead = true;
-                        continue;
+                        proc.stopped = true;
+                        let disasm = disasm(mem[proc.pc as usize]);
+                        // eprintln!(" !Fault {}; Pc {} '{}'", i, proc.pc, disasm);
+                        dead += 1;
                     }
                 }
-
-                proc.pc = proc.pc.wrapping_add(1);
             }
 
             if awaiting_teleport.len() >= 2 {
-                let first_pc = processes[0].pc;
-                let mut dst = 0;
-                let mut src = 1;
-                while src < awaiting_teleport.len() {
-                    processes[dst as usize].pc = processes[src as usize].pc.wrapping_add(1);
+                awaiting_teleport.sort_unstable();
 
-                    src = dst;
-                    dst += 1;
+                let first_pc = processes[awaiting_teleport[0] as usize].pc;
+
+                for i in 0..(awaiting_teleport.len() - 1) {
+                    let dst = awaiting_teleport[i] as usize;
+                    let src = awaiting_teleport[i + 1] as usize;
+
+                    processes[dst].pc = processes[src].pc.wrapping_add(1);
+                    processes[dst].stopped = false;
                 }
-                processes.last_mut().unwrap().pc = first_pc.wrapping_add(1);
-            }
 
-            awaiting_teleport.clear();
+                let last = *awaiting_teleport.last().unwrap() as usize;
+                processes[last].pc = first_pc.wrapping_add(1);
+                processes[last].stopped = false;
+
+                awaiting_teleport.clear();
+            }
         }
 
         let the_answer = mem[42];
@@ -268,4 +288,51 @@ fn main() {
 
         println!("{} {}", the_answer, b);
     }
+}
+
+fn disasm(instr: u32) -> String {
+    let opcode = instr & 0xFF;
+    let immediate = (instr >> 8) & 0xFFFF;
+
+    macro_rules! gen_disasm {
+        ($($ins:literal $body:literal $($imm:ident)*;)+) => {
+            match opcode {
+                $(
+                    $ins => gen_disasm!(@format $body $($imm)*),
+                )+
+                _ => "Invalid".to_string()
+            }
+        };
+        (@format $simple:literal) => {
+            $simple.to_string()
+        };
+        (@format $simple:literal imm) => {
+            format!("{} {}", $simple, immediate)
+        };
+    }
+
+    gen_disasm!(
+        0x00 "NOP";
+        0x01 "PC";
+        0x02 "PUSH" imm;
+        0x03 "POP";
+        0x04 "SWAP";
+        0x05 "DUP";
+        0x06 "PUSHSSZ";
+        0x07 "LOAD";
+        0x08 "STORE";
+        0x09 "ADD";
+        0x0a "SUB";
+        0x0b "DIV";
+        0x0c "POW";
+        0x0d "BRZ" imm;
+        0x0e "BR3" imm;
+        0x0f "BR7" imm;
+        0x10 "BRGE" imm;
+        0x11 "JMP" imm;
+        0x12 "ARMED_BOMB";
+        0x13 "BOMB";
+        0x14 "TLPORT";
+        0x15 "JNTAR";
+    )
 }
