@@ -1,30 +1,12 @@
-#![allow(non_snake_case)]
-use std::{
-    fs::File,
-    io::{BufRead, BufReader},
-};
-
-// static mut FILE: Option<BufReader<File>> = None;
-
 fn stdin_line() -> String {
     let mut string = String::new();
-    // unsafe {
-    //     match &mut FILE {
-    //         Some(file) => file.read_line(&mut string).unwrap(),
-    //         None => std::io::stdin().read_line(&mut string).unwrap(),
-    //     }
-    // };
     std::io::stdin().read_line(&mut string).unwrap();
 
     string
 }
 
+#[allow(non_snake_case)]
 fn main() {
-    // unsafe {
-    //     FILE = Some(BufReader::new(
-    //         File::open("./src/kolo4/krmeni.txt").unwrap(),
-    //     ));
-    // }
 
     let line = stdin_line();
     let mut split = line.split_whitespace();
@@ -57,7 +39,6 @@ fn main() {
     }
 
     for &(u, v) in &pairs[0..(N - 1)] {
-        // (offset, current neighbor count)
         let a = &mut nodes[u as usize];
         child_buf[(a.0 + a.1) as usize] = v;
         a.1 += 1;
@@ -119,11 +100,6 @@ fn main() {
         }
     }
 
-    // println!("{:?}", push_order);
-
-    // println!("{}", lca(4, 9, &nodes, &child_buf, &node_interval));
-    // println!("{}", lca(1, 2, &nodes, &child_buf, &node_interval));
-
     let mut sources = Vec::new();
     for _ in 0..Q {
         let line = stdin_line();
@@ -143,11 +119,10 @@ fn main() {
         }
 
         let depth = nearest_node(&sources, &nodes, &child_buf, &node_interval, &node_depth);
-        println!("{}", sum_dist - depth)
+        println!("{}", sum_dist- depth)
     }
 }
 
-#[allow(unused)]
 fn nearest_node(sources: &[u32], nodes: &[(u32, u32)], child_buf: &[u32], node_interval: &[(u32, u32)], node_depth: &[u32]) -> u32 {
     // algorithm can never terminate because it will always take the path with a single child, 
     // then runs out of nodes and tries to subtract with overflow, this case is always zero
@@ -170,10 +145,9 @@ fn nearest_node(sources: &[u32], nodes: &[(u32, u32)], child_buf: &[u32], node_i
     // when we discard sources by going down a child we add the differences of their depths and that of the current node
     // when we finish we do the same as with orphaned nodes
     let equilibrium = sources.len() as u32 / 2; // for odd numbers we do want to round down
-    let mut sources_left = sources.len() as u32;
     let mut distance = 0;
     let mut cur_node = 0;
-    let min_node = loop {
+    let _min_node = loop {
         let children = get_node_children(cur_node, nodes, child_buf);
         
         let mut max_nodes_passed = 0u32;
@@ -192,7 +166,7 @@ fn nearest_node(sources: &[u32], nodes: &[(u32, u32)], child_buf: &[u32], node_i
                 // the source is a child
                 if start <= l && r <= end {
                     nodes_passed += 1;
-                    depth += node_depth[source as usize];
+                    depth += node_depth[source as usize] - node_depth[cur_node as usize];
                 }
             }
 
@@ -209,14 +183,12 @@ fn nearest_node(sources: &[u32], nodes: &[(u32, u32)], child_buf: &[u32], node_i
         // we will follow the node with 2 because it still saves distance,
         // eventually we reach a node that splits 1, 1 and there we stop
         if max_nodes_passed <= equilibrium {
-            distance += depth_of_all - sources_left * node_depth[cur_node as usize];
+            distance += depth_of_all;
             break cur_node;
         } else {
             // this calculates the distance of all the sources that were just left behind by going down the tree
             // of course this does't include the nodes that are still left "active"
-            depth_of_all -= depth_of_max;
-            depth_of_all -= (sources_left - max_nodes_passed) * node_depth[cur_node as usize];
-            distance += depth_of_all;
+            distance += depth_of_all - depth_of_max;
 
             // when moving down the child with `max_nodes_passed` sources
             // we get farther from all the othersources by 1
@@ -224,7 +196,6 @@ fn nearest_node(sources: &[u32], nodes: &[(u32, u32)], child_buf: &[u32], node_i
             // depth difference
             distance += sources.len() as u32 - max_nodes_passed;
             cur_node = next_node.unwrap();
-            sources_left = max_nodes_passed;
         }
         
     };
@@ -232,6 +203,9 @@ fn nearest_node(sources: &[u32], nodes: &[(u32, u32)], child_buf: &[u32], node_i
     distance
 }
 
+// currently unused Lowest Common Ancestor implementation
+// it was used to try out the node_interval structure
+#[allow(unused)]
 fn lca(l: u32, r: u32, nodes: &[(u32, u32)], child_buf: &[u32], node_interval: &[(u32, u32)]) -> u32 {
     let mut cur_node = 0;
     loop {
