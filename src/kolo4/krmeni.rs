@@ -16,6 +16,7 @@ fn main() {
 
     let mut pairs = vec![(0, 0); N - 1];
     let mut child_buf = vec![0; (N - 1) * 2];
+    // for each node, store offset into child_buf and the count of children/edges
     let mut nodes = vec![(0, 0); N];
 
     for i in 0..(N - 1) {
@@ -27,10 +28,12 @@ fn main() {
         let v = (split.next().unwrap().parse::<usize>().unwrap() - 1) as u32;
 
         pairs[i] = (u, v);
+        // temporary use of buffer for child count of each node
         child_buf[u as usize] += 1;
         child_buf[v as usize] += 1;
     }
 
+    // compute offset into child_buff from the temporary data stored there
     let mut offset = 0;
     for i in 0..N {
         let neighbor_count = child_buf[i];
@@ -38,6 +41,8 @@ fn main() {
         offset += neighbor_count as u32;
     }
 
+    // overwrite the temporary data with actual children, use nodes[].1 as a cursor of where to write
+    // at the end everything is fine
     for &(u, v) in &pairs[0..(N - 1)] {
         let a = &mut nodes[u as usize];
         child_buf[(a.0 + a.1) as usize] = v;
@@ -57,6 +62,7 @@ fn main() {
     // (node index, child offset)
     let mut stack = Vec::new();
     let mut depth = 0u32;
+
     stack.push((0u32, 0u32.wrapping_sub(1)));
     while !stack.is_empty() {
         let (node_i, next_child) = stack.last_mut().unwrap();
@@ -71,6 +77,7 @@ fn main() {
             stack.pop().unwrap();
             depth = depth.wrapping_sub(1);
         } else {
+            // unpack the children/edges
             let children = &child_buf[(ch_offset as usize)..((ch_offset + ch_count) as usize)];
             let next_child = children[*next_child as usize];
 
@@ -81,7 +88,7 @@ fn main() {
                 let children = &mut child_buf[(*offset as usize)..((*offset + *count) as usize)];
                 *count -= 1;
 
-                // find self, move to back and modify count to hide
+                // find index of edge that points back to current node, move it to the end and shrink the edge count
                 let index_of_parent = children.iter().position(|i| *i == *node_i).unwrap();
 
                 let saved_last = *children.last().unwrap();

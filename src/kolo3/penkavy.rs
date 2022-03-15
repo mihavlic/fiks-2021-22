@@ -1,4 +1,3 @@
-#![feature(int_abs_diff)]
 #![allow(unused)]
 
 use core::panic;

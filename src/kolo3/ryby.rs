@@ -76,6 +76,7 @@ fn main() {
 }
 
 // tohle je scanline rasterizer na ilustraci vstupu, není součástní řešení ale jen tu tak je abych se mohl vytahovat
+#[allow(dead_code)]
 fn rasterize(polygons: Vec<Vec<(i32, i32)>>) {
     // scale oddělený pro osy aby se vykompenzoval nerovný poměr stran políček terminálu
     let scale_x = std::env::args()
