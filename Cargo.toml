@@ -50,17 +50,24 @@ path = "src/kolo3/ryby.rs"
 name = "krmeni"
 path = "src/kolo4/krmeni.rs"
 
-
 [[bin]]
 name = "cpu"
 path = "src/kolo4/cpu.rs"
 
+[[bin]]
+name = "vchod"
+path = "src/kolo5/vchod.rs"
+
 [profile.release]
-overflow-checks = true
 codegen-units = 1
 opt-level = 3
+panic = "abort"
+
+[profile.dev]
+codegen-units = 1
 panic = "abort"
 
 [dependencies]
 oorandom = {version = "11.1.3", optional = true}
 signal = {version = "0.7.0", optional = true}
+jemallocator = "0.3.2"
