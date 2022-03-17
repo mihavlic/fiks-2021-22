@@ -6,96 +6,49 @@ use std::collections::{BTreeMap, btree_map::Entry};
 use smallvec::{SmallVec, smallvec};
 
 type Point = (i32, i32);
-fn square_distance(p: Point, c: Point) -> f32 {
-    (((p.0 - c.0) as i64).pow(2) + ((p.1 - c.1) as i64).pow(2)) as f32
+fn square_distance(p: Point, c: Point) -> i64 {
+    // maximum 56 bits for the length, must use i64
+    ((p.0 - c.0) as i64).pow(2) + ((p.1 - c.1) as i64).pow(2)
 }
 // check a 'house' against all corners of the zoo combined with the path to the door, return the minimum distance
 // since the tourists always take the optimal path
-fn point_distance(p: Point, N: i32) -> u32 {
-    //     |        |               
-    //   --3--------2--             
-    //     |        |              
-    //   --0--------1--             
-    //     |        |     
-
+fn point_distance(p: Point, n: i32) -> u32 {
     let corners = [
         (0, 0),
-        (N, 0),
-        (N, N),
-        (0, N),
+        (n, 0),
+        (n, n),
+        (0, n),
     ];
-    let mut mask = [false; 4];
-
-    if p.0 < 0 {
-        mask[0] = true;
-        mask[3] = true;
-    } else if p.0 > N {
-        mask[1] = true;
-        mask[2] = true;
-    }
-    if p.1 < 0 {
-        mask[0] = true;
-        mask[1] = true;
-    } else if p.1 > N {
-        mask[2] = true;
-        mask[3] = true;
-    }
     
-    let mut min = f32::MAX;
-    for i in 0..4 {
-        if mask[i] == true {
-            let dist = square_distance(p, corners[i]);
-            min = min.min(dist);
-        }
-    }
+    let mut min = i64::MAX;
+    for_visible_corners(n, p, |i| {
+        let dist = square_distance(p, corners[i]);
+        min = min.min(dist);
+    });
 
-    let a = min.sqrt();
+    let a = (min as f32).sqrt();
     let b = roundf(a);
     b as u32
 }
 
 // check a 'house' against all corners of the zoo combined with the path to the door, return the minimum distance
 // since the tourists always take the optimal path
-fn point_distance_with_corners(p: Point, N: i32, corner: &[u32]) -> u32 {
-    //     |        |               
-    //   --3--------2--             
-    //     |        |              
-    //   --0--------1--             
-    //     |        |     
-
+fn point_distance_with_corners(p: Point, n: i32, corner: &[u32]) -> u32 {
     let corners = [
         (0, 0),
-        (N, 0),
-        (N, N),
-        (0, N),
+        (n, 0),
+        (n, n),
+        (0, n),
     ];
-    let mut mask = [false; 4];
-
-    if p.0 < 0 {
-        mask[0] = true;
-        mask[3] = true;
-    } else if p.0 > N {
-        mask[1] = true;
-        mask[2] = true;
-    }
-    if p.1 < 0 {
-        mask[0] = true;
-        mask[1] = true;
-    } else if p.1 > N {
-        mask[2] = true;
-        mask[3] = true;
-    }
     
     let mut min = u32::MAX;
-    for i in 0..4 {
-        if mask[i] == true {
+    for_visible_corners(n, p, |i| {
             // let dist = roundf(square_distance(p, corners[i]).sqrt()) as u32 + corner[i];
-            let a = square_distance(p, corners[i]).sqrt() ;
+            let a = (square_distance(p, corners[i]) as f32).sqrt() ;
             let b = corner[i];
             let c = roundf(a) as u32 + b;
             min = min.min(c);
-        }
-    }
+    });
 
     min
 }
@@ -107,16 +60,59 @@ fn stdin_line() -> String {
     string
 }
 
+fn for_visible_corners<F: FnMut(usize)>(n: i32, p: Point, mut fun: F) {
+    //  3 |              | 2
+    //  --(0, n)----(n, n)--
+    //    |              |
+    //    |              |            
+    //  --(0, 0)----(n, 0)--
+    //  0 |              | 1
+    
+    let mut mask = [false; 4];
+    if p.0 < 0 {
+        mask[0] = true;
+        mask[3] = true;
+    } else if p.0 > n {
+        mask[1] = true;
+        mask[2] = true;
+    }
+    if p.1 < 0 {
+        mask[0] = true;
+        mask[1] = true;
+    } else if p.1 > n {
+        mask[2] = true;
+        mask[3] = true;
+    }
+
+    for i in 0..4 {
+        if mask[i] == true {
+            fun(i);
+        }
+    }
+}
+
 fn main() {
     let line = stdin_line();
     let mut split = line.split_whitespace();
     
-    let N = split.next().unwrap().parse::<i32>().unwrap();
-    let Q = split.next().unwrap().parse::<usize>().unwrap();
+    let n = split.next().unwrap().parse::<i32>().unwrap();
+    let q = split.next().unwrap().parse::<usize>().unwrap();
     
-    let mut tree: BTreeMap<u32, SmallVec<[Point; 1]>> = BTreeMap::new();
+    let mut trees: [BTreeMap<i64, u32>; 4] = [
+        BTreeMap::new(),
+        BTreeMap::new(),
+        BTreeMap::new(),
+        BTreeMap::new(),
+    ];
 
-    for _ in 0..Q {
+    let corners = [
+        (0, 0),
+        (n, 0),
+        (n, n),
+        (0, n),
+    ];
+
+    for _ in 0..q {
         let line = stdin_line();
         let mut split = line.split_whitespace();
 
@@ -126,55 +122,45 @@ fn main() {
 
         match command {
             "+" => {
-                let dist = point_distance((x, y), N);
-                match tree.entry(dist) {
-                    Entry::Vacant(vacant) => {vacant.insert(smallvec![(x, y)]);}
-                    Entry::Occupied(mut occupied) => occupied.get_mut().push((x, y)),
-                }                
+                for_visible_corners(n, (x, y), |i| {
+                    let dist = square_distance((x,y), corners[i]);
+                    match trees[i].entry(dist) {
+                        Entry::Vacant(v) => {v.insert(1);},
+                        Entry::Occupied(mut o) => *o.get_mut() += 1,
+                    }
+                })           
             },
             "-" => {
-                let dist = point_distance((x, y), N);
-                match tree.entry(dist) {
-                    Entry::Vacant(_) => unreachable!(),
-                    Entry::Occupied(mut occupied) => {
-                        let vec = occupied.get_mut();
-                        let pos = vec.iter().position(|p| *p == (x,y)).unwrap();
-                        vec.swap_remove(pos);
-
-                        if vec.len() == 0 {
-                            occupied.remove_entry();
-                        }
-                    },
-                }
+                for_visible_corners(n, (x, y), |i| {
+                    let dist = square_distance((x,y), corners[i]);
+                    match trees[i].entry(dist) {
+                        Entry::Vacant(_) => unreachable!(),
+                        Entry::Occupied(mut o) => {
+                            let refcount = o.get_mut();
+                            if *refcount == 1 {
+                                o.remove_entry();
+                            } else {
+                                *refcount -= 1;
+                            }
+                        },
+                    }
+                })
             },
             "?" => {
-                let corner_distance = [
-                    (0, 0),
-                    (N, 0),
-                    (N, N),
-                    (0, N),
-                ].map(|c| ((c.0 - x).abs() + (c.1 - y).abs()) as u32);
+                let corner_distance = corners.map(|c| ((c.0 - x).abs() + (c.1 - y).abs()) as u32);
 
-                let mut min = u32::MAX;
-                let mut max = 0;
-                for i in 0..4 {
-                    let v = corner_distance[i];
-                    min = min.min(v);
-                    max = max.max(v);
+                let mut max = 0f32;
+                for (i, tree) in trees.iter_mut().enumerate() {
+                    let last = match tree.last_entry() {
+                        Some(e) => *e.key(),
+                        None => continue,
+                    };
+                    let dist = (last as f32).sqrt() + corner_distance[i] as f32;
+
+                    max = max.max(dist);
                 }
 
-                let max_diff = max - min;
-                let max = *tree.last_key_value().unwrap().0;
-
-                let mut max_total_dist = 0;
-                for (_, points) in tree.range(max.saturating_sub(max_diff)..=max) {
-                    for p in points {
-                        let dist = point_distance_with_corners(*p, N, &corner_distance);
-                        max_total_dist = max_total_dist.max(dist);
-                    }
-                }
-
-                println!("{}", max_total_dist);
+                println!("{}", max.round() as u32);
             }
             _ => unreachable!()
         }
