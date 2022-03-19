@@ -1,56 +1,10 @@
-#![feature(map_first_last)]
-#![feature(bench_black_box)]
-#![allow(non_snake_case)]
-use std::collections::{BTreeMap, btree_map::Entry};
-
-use smallvec::{SmallVec, smallvec};
+use std::{collections::BTreeMap, cmp::Ordering};
 
 type Point = (i32, i32);
+
 fn square_distance(p: Point, c: Point) -> i64 {
     // maximum 56 bits for the length, must use i64
     ((p.0 - c.0) as i64).pow(2) + ((p.1 - c.1) as i64).pow(2)
-}
-// check a 'house' against all corners of the zoo combined with the path to the door, return the minimum distance
-// since the tourists always take the optimal path
-fn point_distance(p: Point, n: i32) -> u32 {
-    let corners = [
-        (0, 0),
-        (n, 0),
-        (n, n),
-        (0, n),
-    ];
-    
-    let mut min = i64::MAX;
-    for_visible_corners(n, p, |i| {
-        let dist = square_distance(p, corners[i]);
-        min = min.min(dist);
-    });
-
-    let a = (min as f32).sqrt();
-    let b = roundf(a);
-    b as u32
-}
-
-// check a 'house' against all corners of the zoo combined with the path to the door, return the minimum distance
-// since the tourists always take the optimal path
-fn point_distance_with_corners(p: Point, n: i32, corner: &[u32]) -> u32 {
-    let corners = [
-        (0, 0),
-        (n, 0),
-        (n, n),
-        (0, n),
-    ];
-    
-    let mut min = u32::MAX;
-    for_visible_corners(n, p, |i| {
-            // let dist = roundf(square_distance(p, corners[i]).sqrt()) as u32 + corner[i];
-            let a = (square_distance(p, corners[i]) as f32).sqrt() ;
-            let b = corner[i];
-            let c = roundf(a) as u32 + b;
-            min = min.min(c);
-    });
-
-    min
 }
 
 fn stdin_line() -> String {
@@ -91,14 +45,82 @@ fn for_visible_corners<F: FnMut(usize)>(n: i32, p: Point, mut fun: F) {
     }
 }
 
+#[derive(Clone, Copy, Default)]
+struct Data {
+    len: [u32; 3],
+    corners: [u8; 3],
+    point: Point,
+}
+
+// when implementing all these functions, only the first length and the point is taken into account
+// the length provides ordering while the point is unique and differentiates the different Data instances
+impl PartialEq for Data {
+    fn eq(&self, other: &Self) -> bool {
+        self.len[0] == other.len[0] && self.point == other.point
+    }
+}
+impl Eq for Data {}
+
+impl PartialOrd for Data {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match self.len[0].partial_cmp(&other.len[0])   {
+            Some(Ordering::Equal) => {},
+            other => return other.map(|o| o.reverse()),
+        }
+
+        self.point.partial_cmp(&other.point)
+    }
+}
+
+impl Ord for Data {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.len[0].cmp(&other.len[0])   {
+            Ordering::Equal => {},
+            other => return other.reverse(),
+        }
+
+        self.point.cmp(&other.point)
+    }
+}
+
+fn prepare_data(p: Point, n: i32, corners: &[Point; 4]) -> [Option<Data>; 3] {
+    let mut i = 0;
+    let mut len_corner = [(0, 0); 3];
+
+    for_visible_corners(n, p, |j| {
+        let dist = (square_distance(p, corners[j]) as f64).sqrt().round() as u32;
+        len_corner[i] = (dist, j as u8);
+        i += 1;
+    });
+
+    let mut k = 0;
+    let mut out = [None; 3];
+    for j in 0..i {
+        // swap so that for each visible corner we have a copy with the proper length first
+        // it is apparently fine to swap the same element into itself
+        // 1. [A, B, C]
+        // 2. [B, A, C]
+        // 3. [C, A, B]
+        len_corner.swap(0, j);
+        let data = Data {
+            len: len_corner.map(|(len, _)| len),
+            corners: len_corner.map(|(_, corner)| corner),
+            point: p,
+        };
+        out[k] = Some(data);
+        k += 1;
+    }
+    out
+}
+
 fn main() {
     let line = stdin_line();
     let mut split = line.split_whitespace();
     
     let n = split.next().unwrap().parse::<i32>().unwrap();
     let q = split.next().unwrap().parse::<usize>().unwrap();
-    
-    let mut trees: [BTreeMap<i64, u32>; 4] = [
+
+    let mut trees: [BTreeMap<Data, ()>; 4] = [
         BTreeMap::new(),
         BTreeMap::new(),
         BTreeMap::new(),
@@ -120,80 +142,55 @@ fn main() {
         let x = split.next().unwrap().parse::<i32>().unwrap();
         let y = split.next().unwrap().parse::<i32>().unwrap();
 
+        let p = (x, y);
+
         match command {
             "+" => {
-                for_visible_corners(n, (x, y), |i| {
-                    let dist = square_distance((x,y), corners[i]);
-                    match trees[i].entry(dist) {
-                        Entry::Vacant(v) => {v.insert(1);},
-                        Entry::Occupied(mut o) => *o.get_mut() += 1,
+                let data = prepare_data(p, n, &corners);
+                for d in data {
+                    if let Some(d) = d {
+                        trees[d.corners[0] as usize].insert(d, ());
                     }
-                })           
+                }
             },
             "-" => {
-                for_visible_corners(n, (x, y), |i| {
-                    let dist = square_distance((x,y), corners[i]);
-                    match trees[i].entry(dist) {
-                        Entry::Vacant(_) => unreachable!(),
-                        Entry::Occupied(mut o) => {
-                            let refcount = o.get_mut();
-                            if *refcount == 1 {
-                                o.remove_entry();
-                            } else {
-                                *refcount -= 1;
-                            }
-                        },
+                // to search the map to remove the right entry we must either do a linear search (bad idea)
+                // or remake the key so that we have the same ordering as the key we are looking for
+                let data = prepare_data(p, n, &corners);
+
+                // I really appreciate the symmetry of the implementation with the "+" command
+                for d in data {
+                    if let Some(d) = d {
+                        trees[d.corners[0] as usize].remove(&d);
                     }
-                })
+                }
             },
             "?" => {
-                let corner_distance = corners.map(|c| ((c.0 - x).abs() + (c.1 - y).abs()) as u32);
+                let corner_distance = corners.map(|c| ((c.0 - p.0).abs() + (c.1 - p.1).abs()) as u32);
 
-                let mut max = 0f32;
-                for (i, tree) in trees.iter_mut().enumerate() {
-                    let last = match tree.last_entry() {
-                        Some(e) => *e.key(),
-                        None => continue,
-                    };
-                    let dist = (last as f32).sqrt() + corner_distance[i] as f32;
+                let mut max = 0;
+                for i in 0..4 {
+                    'search_edges: for (data, _) in trees[i].iter() {
 
-                    max = max.max(dist);
+                        // find the shortest path for the given point
+                        // if it's not the first one, this edge wouldn't be taken and is ignored
+                        // also zero is invalid unitialized value so is ignored
+                        let first = data.len[0] + corner_distance[data.corners[0] as usize];
+                        for i in 1..3 {
+                            if data.len[i] != 0 && (data.len[i] + corner_distance[data.corners[i] as usize]) < first {
+                                continue 'search_edges;
+                            }
+                        }
+
+                        // everything passed, we can continue onto the other edges 
+                        max = max.max(first);
+                        break;
+                    }
                 }
 
-                println!("{}", max.round() as u32);
+                println!("{}", max as u32);
             }
             _ => unreachable!()
         }
-    }
-}
-
-const TOINT: f32 = 1.0 / f32::EPSILON;
-pub fn roundf(mut x: f32) -> f32 {
-    let i = x.to_bits();
-    let e: u32 = i >> 23 & 0xff;
-    let mut y: f32;
-
-    if e >= 0x7f + 23 {
-        return x;
-    }
-    if i >> 31 != 0 {
-        x = -x;
-    }
-    if e < 0x7f - 1 {
-        std::hint::black_box(x + TOINT);
-        return 0.0 * x;
-    }
-    y = x + TOINT - TOINT - x;
-    if y > 0.5f32 {
-        y = y + x - 1.0;
-    } else if y <= -0.5f32 {
-        y = y + x + 1.0;
-    } else {
-        y = y + x;
-    }
-    if i >> 31 != 0 {
-        -y
-    } else {
-        y
     }
 }
